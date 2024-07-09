@@ -123,6 +123,11 @@ void menu::global_state::stack_push(std::unique_ptr<menu> &&menu)
 	menu->m_parent = std::move(m_stack);
 	m_stack = std::move(menu);
 	m_stack->machine().ui_input().reset();
+	// 弹出菜单暂停游戏
+	if (!m_ui.machine().paused())
+	{
+		m_ui.machine().pause();
+	}
 }
 
 
@@ -143,6 +148,11 @@ void menu::global_state::stack_pop()
 		menu->m_parent = std::move(m_free);
 		m_free = std::move(menu);
 		m_ui.machine().ui_input().reset();
+		// 弹开菜单恢复游戏
+		if (!m_stack && m_ui.machine().paused()) // Only resume if no more menus are in the stack and the game is paused
+		{
+			m_ui.machine().resume();
+		}
 	}
 }
 
@@ -216,7 +226,18 @@ uint32_t menu::global_state::ui_handler(render_container &container)
 				m_stack->menu_deactivated();
 			}
 		}
+		// 隐藏菜单恢复游戏
+		if (m_ui.machine().paused())
+		{
+			m_ui.machine().resume();
+		}
 		return mame_ui_manager::HANDLER_CANCEL;
+	}
+
+	// 显示菜单恢复游戏
+	if (!m_ui.machine().paused())
+	{
+		m_ui.machine().pause();
 	}
 
 	return need_update ? mame_ui_manager::HANDLER_UPDATE : 0;
