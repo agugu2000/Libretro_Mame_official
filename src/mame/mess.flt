@@ -110,6 +110,7 @@ bandai/tamag1.cpp
 bandai/wswan.cpp
 be/bebox.cpp
 beehive/microb.cpp
+benesse/pockchal.cpp
 bitcorp/gamate.cpp
 bondwell/bw12.cpp
 bondwell/bw2.cpp
@@ -925,7 +926,6 @@ skeleton/pes.cpp
 skeleton/picno.cpp
 skeleton/plan80.cpp
 skeleton/pm68k.cpp
-skeleton/pockchal.cpp
 skeleton/proteus3.cpp
 skeleton/pt68k4.cpp
 skeleton/ptcsol.cpp
