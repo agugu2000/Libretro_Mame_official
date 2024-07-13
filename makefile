@@ -1116,10 +1116,10 @@ else
 NEW_GIT_VERSION := $(shell git describe --dirty)
 endif # retro
 else
-NEW_GIT_VERSION := unknown
+NEW_GIT_VERSION := aGuGu\'s Mame
 endif
 ifeq ($(NEW_GIT_VERSION),)
-NEW_GIT_VERSION := unknown
+NEW_GIT_VERSION := aGuGu\'s Mame
 endif
 
 GENIE := 3rdparty/genie/bin/$(GENIEOS)/genie$(EXE)
@@ -1663,7 +1663,7 @@ endif
 ifeq (posix,$(SHELLTYPE))
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
 	@echo '#define BARE_BUILD_VERSION "0.267"' > $@
-	@echo '#define BARE_VCS_REVISION "$(NEW_GIT_VERSION)"' >> $@
+	@echo "#define BARE_VCS_REVISION \"aGuGu\\\'s Mame\"" >> $@
 	@echo 'extern const char bare_build_version[];' >> $@
 	@echo 'extern const char bare_vcs_revision[];' >> $@
 	@echo 'extern const char build_version[];' >> $@
