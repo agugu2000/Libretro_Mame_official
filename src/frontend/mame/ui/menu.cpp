@@ -143,8 +143,9 @@ void menu::global_state::stack_push(std::unique_ptr<menu> &&menu)
 		}
 	}
 	m_stack->machine().ui_input().reset();
-	// 弹出菜单暂停游戏
-	if (!m_ui.machine().paused())
+
+	// Pause game while menu pop-up
+	if (m_ui.machine().options().pause_game_on_menu())
 	{
 		m_ui.machine().pause();
 	}
@@ -183,8 +184,9 @@ void menu::global_state::stack_pop()
 			}
 		}
 		m_free->machine().ui_input().reset();
-		// 弹开菜单恢复游戏
-		if (!m_stack && m_ui.machine().paused()) // Only resume if no more menus are in the stack and the game is paused
+
+		// Resume game while menu pop-down
+		if (m_ui.machine().options().pause_game_on_menu() && !m_stack)
 		{
 			m_ui.machine().resume();
 		}
@@ -281,11 +283,13 @@ uint32_t menu::global_state::ui_handler(render_container &container)
 					m_stack->menu_deactivated();
 				}
 			}
-			// 隐藏菜单恢复游戏
-			if (m_ui.machine().paused())
+
+			// Resume game while menu's hidden
+			if (m_ui.machine().options().pause_game_on_menu())
 			{
 				m_ui.machine().resume();
 			}
+
 			// forget about pointers while menus aren't handling events
 			m_current_pointer = -1;
 			m_pointer_type = ui_event::pointer::UNKNOWN;
@@ -297,11 +301,12 @@ uint32_t menu::global_state::ui_handler(render_container &container)
 			return mame_ui_manager::HANDLER_CANCEL;
 		}
 
-		// 显示菜单恢复游戏
-		if (!m_ui.machine().paused())
+		// Pause game while menu's shown
+		if (m_ui.machine().options().pause_game_on_menu())
 		{
 			m_ui.machine().pause();
 		}
+
 		// if the menu is still active, draw it, otherwise try again
 		if (m_stack->is_active())
 		{
