@@ -1111,9 +1111,9 @@ endif
 
 ifneq ($(IGNORE_GIT),1)
 ifeq ($(OSD), retro)
-NEW_GIT_VERSION := $(shell git rev-parse --short HEAD)
+NEW_GIT_VERSION := aGuGu\'s Mame
 else
-NEW_GIT_VERSION := $(shell git describe --dirty)
+NEW_GIT_VERSION := aGuGu\'s Mame
 endif # retro
 else
 NEW_GIT_VERSION := aGuGu\'s Mame
@@ -1663,17 +1663,17 @@ endif
 ifeq (posix,$(SHELLTYPE))
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
 	@echo '#define BARE_BUILD_VERSION "0.267"' > $@
-	@echo "#define BARE_VCS_REVISION \"aGuGu\\\'s Mame\"" >> $@
+	@echo '#define BARE_VCS_REVISION "$(subst ','\'',$(NEW_GIT_VERSION))"' >> $@
 	@echo 'extern const char bare_build_version[];' >> $@
 	@echo 'extern const char bare_vcs_revision[];' >> $@
 	@echo 'extern const char build_version[];' >> $@
 	@echo 'const char bare_build_version[] = BARE_BUILD_VERSION;' >> $@
 	@echo 'const char bare_vcs_revision[] = BARE_VCS_REVISION;' >> $@
-	@echo 'const char build_version[] = BARE_BUILD_VERSION " (" BARE_VCS_REVISION ")";' >> $@
+	@echo 'const char build_version[] = BARE_BUILD_VERSION " " BARE_VCS_REVISION "";' >> $@
 else
 $(GENDIR)/version.cpp: makefile $(GENDIR)/git_desc | $(GEN_FOLDERS)
 	@echo #define BARE_BUILD_VERSION "0.267" > $@
-	@echo #define BARE_VCS_REVISION "$(NEW_GIT_VERSION)" >> $@
+	@echo #define BARE_VCS_REVISION "$(subst ','\'',$(NEW_GIT_VERSION))" >> $@
 	@echo extern const char bare_build_version[]; >> $@
 	@echo extern const char bare_vcs_revision[]; >> $@
 	@echo extern const char build_version[]; >> $@
