@@ -70,8 +70,8 @@ TODO:
 
 #include "bus/generic/carts.h"
 #include "bus/generic/slot.h"
+#include "cpu/m6502/g65sc02.h"
 #include "cpu/m6502/m6502.h"
-#include "cpu/m6502/m65sc02.h"
 #include "cpu/m6502/r65c02.h"
 #include "machine/clock.h"
 #include "machine/nvram.h"
@@ -117,7 +117,7 @@ public:
 
 protected:
 	virtual void machine_start() override ATTR_COLD;
-	virtual void machine_reset() override { m_power = true; }
+	virtual void machine_reset() override ATTR_COLD { m_power = true; }
 
 private:
 	// devices/pointers
@@ -402,7 +402,7 @@ void const_state::nconst36(machine_config &config)
 	nconst(config);
 
 	// basic machine hardware
-	M65SC02(config.replace(), m_maincpu, 7.2_MHz_XTAL/2);
+	G65SC02(config.replace(), m_maincpu, 7.2_MHz_XTAL/2);
 	m_maincpu->set_addrmap(AS_PROGRAM, &const_state::const_map);
 
 	subdevice<clock_device>("irq_clock")->set_clock(7.2_MHz_XTAL/2 / 0x2000); // ~439Hz (pulse width same as nconst)

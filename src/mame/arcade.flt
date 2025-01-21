@@ -15,7 +15,10 @@ adp/adp.cpp                 // gambling
 
 alba/albazg.cpp          // weird jp gambling
 
+//alba/hanadojo.cpp                    // black screen
+
 alba/rmhaihai.cpp          // mahjong
+-rmhaihaibl
 
 alba/vsmjtria.cpp          // mahjong
 
@@ -303,6 +306,7 @@ atari/xybots.cpp
 //atlus/bowltry.cpp          // black screen
 
 atlus/cave.cpp
+-cellage
 
 atlus/ohmygod.cpp
 
@@ -383,6 +387,7 @@ bmc/koftball.cpp          // weird inputs
 
 bmc/popobear.cpp
 -magkengo
+-magkengou
 
 capcom/1942.cpp
 
@@ -397,6 +402,8 @@ capcom/blktiger.cpp
 //capcom/blktiger_ms.cpp          // bad gfx
 
 capcom/cbasebal.cpp
+
+//capcom/chakumelo.cpp                 // no screen
 
 capcom/commando.cpp
 
@@ -441,6 +448,8 @@ capcom/mitchell.cpp
 -pkladiesbl
 -pkladiesblu
 -spangbl2
+
+//capcom/miteshin.cpp                 // no screen   
 
 //capcom/psrockman.cpp          // no screen
 
@@ -516,12 +525,6 @@ comad/funybubl.cpp
 comad/galspnbl.cpp
 
 comad/zerozone.cpp
-
-cvs/cvs.cpp
-
-cvs/galaxia.cpp
-
-cvs/quasar.cpp
 
 dataeast/actfancr.cpp
 
@@ -671,7 +674,10 @@ dynax/royalmah.cpp          // mahjong
 -cafedoll
 -cafedollg
 -cafebrk
+-dragonmj
+-dragonmj103
 -ichiban
+-janohb
 
 edevices/diverboy.cpp
 
@@ -710,13 +716,13 @@ excellent/d9final.cpp          // gambling
 
 excellent/dblcrown.cpp          // poker
 
+//excellent/es9501.cpp                 // black screen
+
 excellent/gcpinbal.cpp
 
 excellent/lastbank.cpp
--fever13
 
 excellent/witch.cpp
--pbchmp95
 -witchb
 -witchs
 
@@ -998,11 +1004,11 @@ ice/lethalj.cpp
 igs/dunhuang.cpp          // mahjong
 
 igs/funtech.cpp          // poker
--poker21
 
 igs/goldstar.cpp          // fruit
 -3cdpoker
 -3cdpokera
+-amaztsk
 -animalhsa
 -animalw
 -aplan
@@ -1028,7 +1034,9 @@ igs/goldstar.cpp          // fruit
 -eldoradd
 -eldoraddo
 -eldoraddoa
+-eldoraddob
 -feverch
+-halltsk
 -jkrmast
 -jkrmasta
 -ll3
@@ -1090,7 +1098,7 @@ igs/igs_m027.cpp
 -olympic5a
 -sdwx
 
-//igs/igs_m027_023vid.cpp   // skel, roms undumped
+igs/igs_m027_023vid.cpp
 
 //igs/igs_m027_link.cpp     // white screen or no screen
 
@@ -1116,6 +1124,7 @@ igs/pgm.cpp
 -kovlsjba
 -kovlsqh
 -kovlsqh2
+-kovqhsgs
 
 igs/pgm2.cpp
 -bubucar
@@ -1374,6 +1383,8 @@ konami/gijoe.cpp
 //konami/goldenregion.cpp         // mnw
 
 konami/gradius3.cpp
+
+//konami/gryzor_ms.cpp                // black screen
 
 konami/gticlub.cpp
 
@@ -1801,6 +1812,7 @@ misc/39in1.cpp
 -fruitwld
 -fruitwlda
 -jumanji
+-jumanjia
 -plutus
 -pokrwild
 -rodent
@@ -1893,7 +1905,10 @@ misc/carrera.cpp
 //misc/castle.cpp          // mnw
 
 misc/cb2001.cpp          // fruit
+-cb4
 -cb5
+-crzybell
+-dynastye
 -mystjb
 -ndongmul2
 -scherrym
@@ -1953,6 +1968,8 @@ misc/crystal.cpp
 misc/cubeqst.cpp
 
 //misc/cupidon.cpp          // black screen
+
+misc/cvs.cpp
 
 //misc/cwheel.cpp          // no screen
 
@@ -2092,6 +2109,7 @@ misc/goldnpkr.cpp          // poker
 -olym65wc
 -op5cards
 -pokerdub
+-potnpkrn
 -wldwitchb
 -wldwitche
 -witchgmea
@@ -2171,8 +2189,6 @@ misc/jubilee.cpp          // poker
 misc/kingpin.cpp
 -dealracl
 
-misc/kurukuru.cpp
-
 misc/ladyfrog.cpp
 
 misc/laserbas.cpp
@@ -2250,6 +2266,7 @@ misc/mole.cpp
 misc/mosaic.cpp
 
 misc/mpu12wbk.cpp          // fruit
+-goldnjkra
 
 //misc/multfish.cpp          // fruit, mnw
 
@@ -2312,8 +2329,6 @@ misc/oneshot.cpp
 misc/onetwo.cpp
 
 //misc/opercoin.cpp          // no screen
-
-misc/othello.cpp
 
 misc/pachifev.cpp
 
@@ -2398,8 +2413,6 @@ misc/shangkid.cpp
 
 misc/skimaxx.cpp
 
-//misc/skopro.cpp          // chd, mnw
-
 misc/skyarmy.cpp
 
 misc/skylncr.cpp
@@ -2424,8 +2437,6 @@ misc/smotor.cpp
 
 misc/smsmcorp.cpp
 -trvhanga
-
-misc/sothello.cpp
 
 //misc/spdamjes.cpp          // no screen
 
@@ -2578,14 +2589,11 @@ misc/xyonix.cpp
 
 //misc/yuvomz80.cpp          // no screen
 
-mr/dribling.cpp
+modelracing/dribling.cpp
 
-mr/sshot.cpp
--gunchamps
+modelracing/sshot.cpp
 
-//mr/subhuntr.cpp          // hang at start
-
-msx/big10.cpp          // keno
+//modelracing/subhuntr.cpp    // hang at start
 
 msx/forte2.cpp
 
@@ -2661,6 +2669,7 @@ namco/namcos12.cpp
 -sws2000
 -sws2001
 -tektagtja
+-tektagtja3
 -tektagtjb
 
 //namco/namcos1b.cpp          // black screen
@@ -2756,6 +2765,7 @@ nichibutsu/cop01.cpp
 nichibutsu/dacholer.cpp
 
 nichibutsu/galivan.cpp
+-ninjemat
 
 nichibutsu/gomoku.cpp
 
@@ -2844,6 +2854,9 @@ nintendo/spacefb.cpp
 
 nintendo/vsnes.cpp
 
+nintendo/vt1682.cpp
+-gm235upc
+
 nix/fitfight.cpp
 
 nix/pirates.cpp
@@ -2887,6 +2900,8 @@ omori/carjmbre.cpp
 omori/popper.cpp
 
 omori/spaceg.cpp
+
+omori/yakyuken.cpp
 
 orca/akazukin.cpp
 
@@ -3348,13 +3363,13 @@ sega/model3.cpp
 -vf3tb
 -vs298
 -vs29815
--vs2v991
 -vs299
--vs299a
--vs29915a
--vs299j
 -vs29915
+-vs29915a
 -vs29915j
+-vs299a
+-vs299j
+-vs2v991
 
 //sega/monacogp.cpp          // black screen
 
@@ -3508,23 +3523,23 @@ sega/naomi.cpp
 -vtennis
 -vtennisg
 -wldrider
--wccf310j
--wccf341j
--wccf331j
--wccf322e
--wccf331e
--wccf420e
--wccf400j
--wccf1dup
 -wccf116
--wccf2chk
+-wccf1dup
 -wccf212e
 -wccf234j
+-wccf2chk
+-wccf310j
+-wccf322e
+-wccf331e
+-wccf331j
+-wccf341j
+-wccf400j
+-wccf420e
 -wldkicks
 -wldkicksj
--wldkicksu
 -wldkickspj
 -wldkickspw
+-wldkicksu
 -zunou
 
 sega/puckpkmn.cpp
@@ -3698,6 +3713,8 @@ seibu/bloodbro.cpp
 
 seibu/cabal.cpp
 
+//seibu/cabal_ms.cpp                  // black screen
+
 seibu/darkmist.cpp
 
 seibu/dcon.cpp
@@ -3816,6 +3833,8 @@ sigma/sigmab98.cpp
 
 sigma/spiders.cpp
 
+//skeleton/banpresto_tomy_h8s.cpp // black screen
+
 //skeleton/bolsaint.cpp           // no screen
 
 //skeleton/boo.cpp                // black screen
@@ -3838,15 +3857,25 @@ sigma/spiders.cpp
 
 //skeleton/elcirculo.cpp          // no screen
 
+//skeleton/extrema_m27sv.cpp      // black screen
+
+//skeleton/falconun.cpp                // black screen
+
+//skeleton/flashvga2.cpp          // black screen
+
 //skeleton/ganbaremo.cpp          // no screen
 
 //skeleton/happyvideo.cpp         // no screen
 
 //skeleton/kkcount.cpp            // no screen
 
+//skeleton/lgtz80.cpp             // black screen
+
 //skeleton/madmoney2.cpp          // no screen
 
 //skeleton/minihock.cpp           // no screen
+
+//skeleton/palsystems_sh2.cpp     // black screen
 
 //skeleton/pullttrigger.cpp       // no screen
 
@@ -3861,6 +3890,10 @@ sigma/spiders.cpp
 //skeleton/ticz80.cpp             // black screen
 
 //skeleton/tvcobrasd.cpp          // no screen
+
+//skeleton/venteta.cpp                 // black screen
+
+//skeleton/vgame.cpp              // black screen
 
 //skeleton/whtm68k.cpp            // bad gfx
 
@@ -3917,6 +3950,18 @@ subsino/subsino2.cpp
 -xplan
 -xreel
 
+success/big10.cpp          // keno
+
+success/kurukuru.cpp
+
+success/othello.cpp
+
+//success/skopro.cpp          // chd, mnw
+
+success/sothello.cpp
+
+success/tonton.cpp
+
 suna/go2000.cpp
 
 suna/goindol.cpp
@@ -3945,8 +3990,6 @@ sunelectronics/shangha3.cpp
 
 sunelectronics/shanghai.cpp
 
-sunelectronics/tonton.cpp
-
 //sunwise/anoworld.cpp         // black screen
 
 sunwise/jankenmn.cpp
@@ -3956,7 +3999,6 @@ taito/2mindril.cpp
 taito/40love.cpp
 
 taito/arkanoid.cpp
--arkanoidpe
 
 taito/ashnojoe.cpp
 
@@ -4068,6 +4110,8 @@ taito/retofinv.cpp
 taito/rollrace.cpp
 
 taito/sbmjb.cpp
+-bubbroul17
+-harikiri
 -honooinv
 -rendfgtr
 
@@ -4189,6 +4233,8 @@ technos/ddragon.cpp
 
 technos/ddragon3.cpp
 
+//technos/ddragon_ms.cpp               // black screen
+
 technos/dogfgt.cpp
 
 technos/matmania.cpp
@@ -4221,6 +4267,8 @@ tecmo/pbaction.cpp
 
 tecmo/senjyo.cpp
 
+//tecmo/shadoww_ms.cpp                 // black screen
+
 tecmo/solomon.cpp
 
 tecmo/spbactn.cpp
@@ -4244,21 +4292,49 @@ thepit/thepit.cpp
 
 thepit/timelimt.cpp
 
+toaplan/batsugun.cpp
+
+toaplan/dogyuun.cpp
+
+toaplan/dt7.cpp
+
+toaplan/enmadaio.cpp
+
+toaplan/fixeight.cpp
+
+toaplan/ghox.cpp
+
+toaplan/kbash.cpp
+
 toaplan/mjsister.cpp          // mahjong
+
+toaplan/pipibibi.cpp
+-pipibibsbl2
+
+toaplan/raizing.cpp
+
+toaplan/raizing_batrider.cpp
 
 toaplan/slapfght.cpp
 -tigerhb4
 
 //toaplan/slapfght_ms.cpp          // stuck on ramcheck
 
+toaplan/snowbro2.cpp
+
+toaplan/sunwise.cpp
+
+toaplan/tekipaki.cpp
+
 toaplan/toaplan1.cpp
 
-toaplan/toaplan2.cpp
--pipibibsbl2
+toaplan/truxton2.cpp
 
 toaplan/twincobr.cpp
 
 //toaplan/twincobr_ms.cpp         // black screen
+
+toaplan/vfive.cpp
 
 toaplan/wardner.cpp
 
@@ -4356,15 +4432,20 @@ vsystem/taotaido.cpp
 vsystem/welltris.cpp
 
 wing/luckgrln.cpp          // gambling
+-luckstrn
 
 //wing/lucky37.cpp          // poker, no screen
 
 wing/lucky74.cpp          // poker
 -excitbj
 -lucky74b
+-lucky88w
 
 wing/pinkiri8.cpp          // mahjong, bad gfx
 -pinkiri8
+-ronjana
+-ronjansa
+-ronjansb
 
 //wing/slotcarn.cpp          // fruit-poker, bad gfx
 
@@ -4378,7 +4459,11 @@ yunsung/yunsun16.cpp
 
 yunsung/yunsung8.cpp
 
+zaccaria/galaxia.cpp
+
 zaccaria/laserbat.cpp
+
+zaccaria/quasar.cpp
 
 zaccaria/seabattl.cpp
 -armada

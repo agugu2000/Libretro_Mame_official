@@ -6,7 +6,10 @@
 This driver covers Dyna games running on the DYNA CPU91A-011 custom CPU.
 It is an encrypted NEC V25 or V35.
 It has been seen on the following PCBs:
+D9203
+D9205 (sub PCB)
 D9304
+D9401
 D9701 (sub PCB)
 D9702
 D9805
@@ -53,7 +56,12 @@ this seems more like 8-bit hardware, maybe it should be v25, not v35...
 To enter input test, keep '9' pressed and press 'F3'.
 
 TODO:
-- correct / complete CPU decryption table
+- correct / complete CPU decryption table. Most games run for a while before getting stuck.
+  dynastye is the exception. It's a very early game which seems to use a rather different
+  codebase and trips on not yet decrypted opcodes almost immediately;
+- the DC3001 GFX custom is suspected to have internal ROM (seems used by scherrym and clones);
+- dynastye doesn't seem to have the DC3001 GFX custom or at least uses a different GFX format;
+- all games will need proper i/o once they fully work.
 
 *************************************************************************************************/
 
@@ -1521,13 +1529,27 @@ ROM_START( cb2001 ) // DYNA D9702 PCB; DYNA CO1 V1.1I in bookkeeping screen
 	ROM_LOAD( "am27s29.11b", 0x200, 0x200, CRC(e5aa3ec7) SHA1(675711dd6788b3d0c37573b49b6297cbcd8c8209) )
 ROM_END
 
+ROM_START( dynastye ) // DYNA D9203 PCB; DYNA DYN3 V5.1G in bookkeeping screen
+	ROM_REGION16_LE( 0x40000, "boot_prg", ROMREGION_ERASE00 )
+	ROM_LOAD16_WORD( "ds_51g.16f", 0x30000, 0x10000, CRC(ebc3397f) SHA1(8870dcf465757f1c4fedabe863fb41e4d42e4952) )
+
+	ROM_REGION( 0x20000, "gfx", 0 )
+	ROM_LOAD( "ds_3h.3h", 0x00000, 0x20000, CRC(3d1a7f92) SHA1(2bb85a6738a8ffe29a238f7276b7afd59c5ebafe) ) // D27C010
+
+	ROM_REGION( 0x400, "proms", ROMREGION_ERASE00 )
+	ROM_LOAD( "82s135.11e", 0x000, 0x100, CRC(b1d8c6b4) SHA1(ef9aa1627a5025be3cfaa188c2972ce81e57c474) )
+	ROM_LOAD( "82s135.12e", 0x100, 0x100, CRC(b7fa3d99) SHA1(a8102d1637596a13733446dfdb37ec8c13185412) )
+ROM_END
+
 ROM_START( scherrym ) // DYNA D9304 PCB; DYNA SCM V5.2 in bookkeeping screen
 	ROM_REGION16_LE( 0x40000, "boot_prg", ROMREGION_ERASE00 )
 	ROM_LOAD16_WORD( "v5.2.11b", 0x20000, 0x10000, CRC(26417279) SHA1(a83b8c050f1a2ab379f69175f2416e6b0b43b940) )
 	ROM_RELOAD(                  0x30000, 0x10000)
 
-	ROM_REGION( 0x100000, "gfx", 0 )
-	ROM_LOAD( "d9701.12c", 0x000000, 0x100000, BAD_DUMP CRC(07d711a6) SHA1(6b5a4017eb1d31dc184831f85d786331f4a8e01f) ) // not dumped for this PCB, needs correct one
+	ROM_REGION( 0x20000, "gfx", 0 )
+	// this PCB has an empty socket near the D3001 custom GFX chip, but it works correctly.
+	// Does the D3001 have a stock internal ROM which can be overridden by an external ROM chip?
+	ROM_LOAD( "d3001", 0x00000, 0x20000, NO_DUMP )
 
 	ROM_REGION( 0x400, "proms", ROMREGION_ERASE00 )
 	ROM_LOAD( "82s135.2d", 0x000, 0x100, CRC(e87ed5c9) SHA1(ecdfa9586f9daffdb366154b02febcdb535a1427) )
@@ -1539,8 +1561,10 @@ ROM_START( scherrym12 ) // DYNA D9304 PCB; DYNA SCM V1.2 in bookkeeping screen
 	ROM_LOAD16_WORD( "v1.2.11b", 0x20000, 0x10000, CRC(94d452c1) SHA1(a99b54f71318c82a9a5005ff4cc8efc17de6a327) )
 	ROM_RELOAD(                  0x30000, 0x10000)
 
-	ROM_REGION( 0x100000, "gfx", 0 )
-	ROM_LOAD( "d9701.12c", 0x000000, 0x100000, BAD_DUMP CRC(07d711a6) SHA1(6b5a4017eb1d31dc184831f85d786331f4a8e01f) ) // not dumped for this PCB, needs correct one
+	ROM_REGION( 0x20000, "gfx", 0 )
+	// this PCB has an empty socket near the D3001 custom GFX chip, but it works correctly.
+	// Does the D3001 have a stock internal ROM which can be overridden by an external ROM chip?
+	ROM_LOAD( "d3001", 0x00000, 0x20000, NO_DUMP )
 
 	ROM_REGION( 0x400, "proms", ROMREGION_ERASE00 )
 	ROM_LOAD( "82s135.2d", 0x000, 0x100, CRC(e87ed5c9) SHA1(ecdfa9586f9daffdb366154b02febcdb535a1427) )
@@ -1569,6 +1593,20 @@ ROM_START( scherrymp10u ) // DYNA D9702 PCB; DYNA PLUS V1.0U in bookkeeping scre
 	ROM_REGION( 0x400, "proms", 0 )
 	ROM_LOAD( "82s147.9b",  0x000, 0x200, CRC(dcf976d2) SHA1(73a08e4587f3516d694a8060b79470cf71df3925) )
 	ROM_LOAD( "82s147.11b", 0x200, 0x200, CRC(a67e7a63) SHA1(b23e0eb9af13e57bbc8602ddc7fb381ba5c8267e) )
+ROM_END
+
+ROM_START( cb4 ) // Wing W4 board + DYNA D9205 subboard; DYNA CB4 V5.0 in bookkeeping screen.
+	ROM_REGION16_LE( 0x040000, "boot_prg", 0 )
+	ROM_LOAD16_WORD( "5mk.2g", 0x020000, 0x10000, CRC(ecc6f80e) SHA1(b6de63cd5231ef9481ee79d841a6ea591add7e4d) )
+	ROM_RELOAD(                 0x30000, 0x10000)
+
+	ROM_REGION( 0x100000, "gfx", 0 )
+	ROM_LOAD16_BYTE( "cb4.4i", 0x000000, 0x040000, CRC(c1799150) SHA1(50e80607b93f6ee35e3e8ff5d854dc83afe76505) )
+	ROM_LOAD16_BYTE( "cb4.4j", 0x000001, 0x040000, CRC(3a12cf69) SHA1(232eeca78cdabcd952825aba0ad397e3dde79747) )
+
+	ROM_REGION( 0x400, "proms", 0 ) // not dumped yet
+	ROM_LOAD( "82s147.9b",  0x000, 0x200, BAD_DUMP CRC(dcf976d2) SHA1(73a08e4587f3516d694a8060b79470cf71df3925) )
+	ROM_LOAD( "82s147.11b", 0x200, 0x200, BAD_DUMP CRC(a67e7a63) SHA1(b23e0eb9af13e57bbc8602ddc7fb381ba5c8267e) )
 ROM_END
 
 ROM_START( cb5 ) // Wing W4 board + DYNA D9701 subboard; DYNA CB5 V1.3 in bookkeeping screen. Appears to be the missing link to igs/goldstar.cpp hw.
@@ -1663,6 +1701,18 @@ ROM_START( tripjack ) // DYNA D9805 PCB; DYNA TRJ V1.6G in bookkeeping screen
 	ROM_LOAD( "82s135.11b", 0x100, 0x100, CRC(9940ef22) SHA1(42b0c6410d8db34e0316e95b7b7007abc3098341) )
 ROM_END
 
+ROM_START( crzybell ) // DYNA D9401 PCB; DYNA CRBL1 V1.2D in bookkeeping screen
+	ROM_REGION16_LE( 0x40000, "boot_prg", 0 )
+	ROM_LOAD16_WORD( "cbl12d.6e", 0x20000, 0x20000, CRC(a5d43b00) SHA1(b89fd8eb7675b3dd4f47bf95326da1b881997a56) )
+
+	ROM_REGION( 0x80000, "gfx", 0 )
+	ROM_LOAD( "cbl1d.2g", 0x00000, 0x80000, CRC(83c6a91f) SHA1(3f802777e4a5581f7efe86309992f0e7a79851ee) )
+
+	ROM_REGION( 0x400, "proms", ROMREGION_ERASE00 ) // not dumped yet
+	ROM_LOAD( "82s135.j5", 0x000, 0x100, BAD_DUMP CRC(2d2237fb) SHA1(9b71801bd465d2a823f648f4d3c1823b5ba3340e) )
+	ROM_LOAD( "82s135.k5", 0x100, 0x100, BAD_DUMP CRC(9940ef22) SHA1(42b0c6410d8db34e0316e95b7b7007abc3098341) )
+ROM_END
+
 
 void cb2001_state::init_smaller_proms()
 {
@@ -1687,10 +1737,13 @@ void cb2001_state::init_smaller_proms()
 //    YEAR  NAME          PARENT     MACHINE    INPUT      CLASS         INIT                ROT   COMPANY  FULLNAME                            FLAGS
 GAME( 2000, cb2001,       0,         cb2001,    cb2001,    cb2001_state, empty_init,         ROT0, "Dyna",  "Cherry Bonus 2001 (V1.1I)",        MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
 GAME( 1999, ndongmul2,    0,         ndongmul2, ndongmul2, cb2001_state, empty_init,         ROT0, "Dyna",  "New DongmulDongmul 2 (V1.2N)",     MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE ) // goes into the weeds at various point, due to either missing MCU dump or incomplete decryption. Bad reels GFX.
-GAME( 1993, scherrym ,    0,         scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master (V5.2)",       MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE ) // 2001 version? (we have bootlegs running on z80 hw of a 1996 version)
-GAME( 1993, scherrym12 ,  scherrym,  scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master (V1.2)",       MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE ) // 2001 version? (we have bootlegs running on z80 hw of a 1996 version)
-GAME( 1997, scherrymp,    0,         scherrymp, scherrymp, cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master Plus (V1.6)",  MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE ) // 2001 version? (we have bootlegs running on z80 hw of a 1996 version)
-GAME( 1997, scherrymp10u, scherrymp, scherrymp, scherrymp, cb2001_state, empty_init,         ROT0, "Dyna",  "Super Cherry Master Plus (V1.0U)", MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE ) //
+GAME( 1992, dynastye ,    0,         scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Dynasty (1992, V5.1G)",            MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1993, scherrym ,    0,         scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master (V5.2)",       MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1993, scherrym12 ,  scherrym,  scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master (V1.2)",       MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1997, scherrymp,    0,         scherrymp, scherrymp, cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Super Cherry Master Plus (V1.6)",  MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1997, scherrymp10u, scherrymp, scherrymp, scherrymp, cb2001_state, empty_init,         ROT0, "Dyna",  "Super Cherry Master Plus (V1.0U)", MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1993, cb4,          0,         cb5,       cb5,       cb2001_state, empty_init,         ROT0, "Dyna",  "Cherry Bonus IV (V5.0)",           MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
 GAME( 1997, cb5,          0,         cb5,       cb5,       cb2001_state, empty_init,         ROT0, "Dyna",  "Cherry Bonus V Five (V1.3)",       MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
 GAME( 1998, mystjb,       0,         scherrymp, scherrymp, cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Mystery J & B (V1.3G)",            MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
 GAME( 1998, tripjack,     0,         scherrymp, scherrymp, cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Triple Jack (V1.6G)",              MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
+GAME( 1995, crzybell,     0,         scherrym,  cb2001,    cb2001_state, init_smaller_proms, ROT0, "Dyna",  "Crazy Bell (V1.2D)",               MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_SUPPORTS_SAVE )
