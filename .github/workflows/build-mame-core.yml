@@ -1,0 +1,465 @@
+name: Build MAME libretro core (arcade)
+
+# 编的是「你分支上 tag 那一刻的状态」，不是上游那个 tag 本身。输入 tag 和分支名，
+# CI 去分支历史里定位，只编那一点：tag 之前你分支上的改动都在，tag 之后写的不带；
+# 上游侧带多少取决于你合的是哪条上游线。
+# 分支不写死，想编哪个填哪个，新建多少个分支都一样。
+# tag 留空就编那个分支的最新提交，产物名里的版本段写 latest。
+#
+# 找法：拿 tag 解引用后的 commit，在分支的 first-parent 链上找最旧的「包含它」的
+# 提交，编它——那就是定位点。tag 早到那会儿分支上还没有自有提交时，定位点就是 tag
+# 自己，编出来等于上游原版，这也是对的：那一刻的代码就是上游。
+# 定位不到就报错不编，不会退回去拿纯上游顶上。
+# 不看 merge 的第二父是不是 tag：同步上游时合的是当时的 master，第二父就不是 tag，
+# 那种写法会一路掉到纯上游。--first-parent 不能省，不然上游那条线的后续提交也会
+# 算进路径，编 0290 定位到 0291。
+#
+# 按钮得挂在默认分支才看得见，所以文件放 master。
+#
+# 官方那套参数别搞错。真出下载包的是 .gitlab-ci.yml，跑他们自家镜像里，
+# buildbot 一份配方长这样：
+#
+#   MAKEFILE=Makefile.libretro, CORENAME=mame, REGENIE=0
+#   linux 的 OVERRIDE_CC 指 gcc-12，还要 CXXFLAGS=-Wno-deprecated-declarations
+#   osx 给 MACOSX_DEPLOYMENT_TARGET=10.14
+#   android 唯一带 SUBTARGET=arcade，桌面上和 ios/tvos 都是全量 mame，不给 SUBTARGET
+#
+# 还有个 ci-libretro-*.yml，是官方拿来做冒烟的，只证明能编过，不出包，编译器版本也不锁。
+# 这两份现在都不好使：mingw 缺 SDL2 头，android 编全量撞 eeprom28.h 里 PAGE_MASK
+# 的宏冲突，最近是跑一次挂一次。
+# 所以只能借它看 make 怎么调，别当范例抄。官方出包靠私有镜像（MXE、backports、
+# 自建 NDK），GitHub 上没戏一比一复现，缺的依赖自己补，下面 Windows 那段就是补丁。
+#
+# 编译命令还是走 Makefile.libretro。OPTIMIZE、LTO、DEBUG、STRIP_SYMBOLS 都不传，
+# 让它自己定：OPTIMIZE=3 就是 -O3，CONFIG=libretro，不 strip。
+#
+# subtarget 默认 arcade，按 src/mame/arcade.flt 过滤，1165 个源文件、13339 个驱动。
+# 还有个 tiny，lrmame0289 的 scripts/target/mame/tiny.lua 里那二十来个驱动，
+# 几分钟就编完，验链路用，不用拿几小时去赌。
+# 这俩都不是官方桌面全量，驱动集合不一样，产物对不上官方的，但优化参数一致。
+# projname 是 target..subtarget，出来叫 mamearcade 或 mametiny，落仓库根目录
+# （main.lua 的 targetdir），文件名 mame<subtarget>_libretro*。
+#
+# CC/CXX/AR 必须 export。写成 make 命令行变量会出事，它进 MAKEFLAGS，传给 genie
+# 的子 make，把 genie.make 里那句 `CC = gcc` 压掉，genie 自己反被交叉编译器编了，
+# 报 sys/wait.h 找不到。
+# OVERRIDE_CC/CXX/AR 是另一回事，genie.make 不认这几个名字，随便写。
+#
+# aarch64 要换链接器。genie.lua:1002 给 targetos=linux 硬加了静态 libgcc/libstdc++，
+# 静态库离 .text 一超过 R_AARCH64_CALL26 的 ±128MB，GNU ld.bfd 又不插 thunk，
+# 直接 relocation truncated to fit。
+# linux-aarch64 加 LDOPTS=-fuse-ld=lld 就行，win 分支的 Makefile.libretro:123-125
+# 也是这么干的，走 makefile:832 -> genie.lua:983。只换链接器，buildoptions 不动。
+#
+# 上传只要最后的 .so。它在仓库根（main.lua:223/261），build/libretro/bin/ 里那些 .a
+# 全是中间产物，别往包里塞。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "上游 tag（原始 tag，例如 lrmame0289）。用来在分支上定位要编的那个提交。留空就编该分支最新，不用填"
+        required: false
+        type: string
+        default: ''
+      branch:
+        description: "分支名。CI 在这个分支的历史里找该 tag 的合并点"
+        required: true
+        type: string
+        default: master
+      subtarget:
+        description: "arcade=正式街机核心；tiny=极小子集，仅用于快速验证编译链路"
+        required: true
+        type: choice
+        default: arcade
+        options:
+          - arcade
+          - tiny
+      targets:
+        description: "逗号分隔可多选。对齐官方配方：linux-x86_64, linux-aarch64, windows-x86_64, android-arm64, macos-arm64, linux-x86, windows-x86, android-armv7, android-x86, android-x86_64, macos-x86_64, ios-arm64, tvos-arm64 ｜ EXPERIMENTAL(无官方配方、未经实测、不保证出产物)：linux-armhf, linux-armv7-neon, ios, ios9, switch"
+        required: true
+        type: string
+        default: linux-x86_64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-mame-${{ inputs.branch }}-${{ inputs.tag || 'latest' }}-${{ inputs.subtarget }}-${{ inputs.targets }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      switch: ${{ steps.m.outputs.switch }}
+      build_count: ${{ steps.m.outputs.build_count }}
+      sha: ${{ steps.loc.outputs.sha }}
+    steps:
+      - name: Locate build point
+        id: loc
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          BRANCH: ${{ inputs.branch }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          UP=https://github.com/libretro/mame.git
+          SELF="https://x-access-token:$TOKEN@github.com/$REPO"
+
+          # tag 留空就是编分支最新，下面这几段跟 tag 有关的全跳过
+          if [ -n "$TAG" ]; then
+            if ! printf '%s' "$TAG" | grep -qE '^[A-Za-z0-9._-]+$'; then
+              echo "::error::只接受原始 tag（字母/数字/./_/-），收到：$TAG"
+              exit 1
+            fi
+
+            # ls-remote --tags --refs 给的是 tag 对象的 SHA，annotated tag 还得再解一层
+            # 才是 commit。定位要用解引用后的那个，拿错了 ancestry 直接算不动。
+            SHA=$(git ls-remote "$UP" "refs/tags/$TAG^{}" | cut -f1) || {
+              echo "::error::访问 $UP 失败，先看网络"
+              exit 1
+            }
+            [ -n "$SHA" ] || SHA=$(git ls-remote "$UP" "refs/tags/$TAG" | cut -f1)
+            if [ -z "$SHA" ]; then
+              echo "::error::libretro/mame 没有 tag：$TAG"
+              echo "近 20 个 lrmame tag："
+              git ls-remote --tags --refs "$UP" | awk -F/ '{print $NF}' \
+                | grep -E '^lrmame[0-9]+$' | sort -V | tail -20 || true
+              exit 1
+            fi
+            echo "tag $TAG -> $SHA"
+          fi
+
+          HEADS=$(git ls-remote --heads "$SELF" "refs/heads/$BRANCH") || {
+            echo "::error::访问本仓库失败，token 权限或者网络的问题"
+            exit 1
+          }
+          if [ -z "$HEADS" ]; then
+            echo "::error::仓库里没有分支：$BRANCH"
+            exit 1
+          fi
+
+          # 本仓库要是有同名 tag，得跟上游是同一个提交。不一样就停，不然编出来的
+          # 东西自己都说不清是哪份代码。
+          if [ -n "$TAG" ]; then
+            FSHA=$(git ls-remote "$SELF" "refs/tags/$TAG^{}" | cut -f1)
+            [ -n "$FSHA" ] || FSHA=$(git ls-remote "$SELF" "refs/tags/$TAG" | cut -f1)
+            if [ -n "$FSHA" ] && [ "$FSHA" != "$SHA" ]; then
+              echo "::error::本仓库的 $TAG 指向 $FSHA，上游是 $SHA，不是同一个提交"
+              exit 1
+            fi
+            if [ -z "$FSHA" ]; then
+              echo "::warning::本仓库没有 $TAG 这个 tag，不影响编译。要补就本地 git push origin $TAG"
+            fi
+          fi
+
+          # 只拉 commit 对象，tree 和 blob 一概不下，ancestry 用不上文件内容
+          LOC="$(pwd)/.loc"
+          git init -q "$LOC"
+          trap 'rm -rf "$LOC" || true' EXIT
+          cd "$LOC"
+          git remote add origin "$SELF"
+          git fetch -q --no-tags --filter=tree:0 origin "$BRANCH"
+
+          if [ -z "$TAG" ]; then
+            # 没填 tag，编这个分支当前的头，不找什么合并点
+            M=$(git rev-parse FETCH_HEAD)
+            echo "没填 tag，编 $BRANCH 最新：$(git log -1 --format='%h %s' "$M")"
+          else
+            if ! git merge-base --is-ancestor "$SHA" FETCH_HEAD 2>/dev/null; then
+              echo "::error::$TAG 那个提交不在 $BRANCH 的历史里"
+              echo "要么还没 merge 进来，要么同步上游时用了 rebase（那样提交号会变）"
+              echo "用 merge：git fetch upstream --tags && git merge $TAG"
+              exit 1
+            fi
+
+            # 在分支的第一父链上，找最旧的「包含该 tag」的提交，那就是合入点：
+            # 含 tag 的全部代码 + 该 tag 之前你分支上的改动。链是单调的（越老越不
+            # 可能含 tag），二分成立，任意拓扑都对。
+            # 「tag 之后不带」指的是你自己分支上写的提交：它们都在合入点后面。
+            # 上游侧带进来多少，取决于你那次 merge 合的是哪条上游线（合 tag 就只到
+            # tag，合当时的 upstream/master 就会带上它那一整条）。
+            # 不能换 rev-list --ancestry-path --first-parent：tag 在第二父线上时那个
+            # 组合会算成空集。也不能看 merge 的第二父是不是 tag：同步上游时合的是
+            # 当时的 master，第二父就不是 tag，会一路掉到拿纯上游顶上。
+            # --first-parent 不能省，不然上游那条线的后续提交也会算进路径，编 0290
+            # 定位到 0291。tail -1 也不能换 --reverse | head -1：head 读一行就走，
+            # rev-list 还在往里写，SIGPIPE 会让整个 step 以 141 退出，什么错都看不到。
+            # FETCH_HEAD 是 git 的伪引用，不能写成 "$FETCH_HEAD"：shell 里没这个变量，
+            # set -u 下展开直接崩。下面全部按字面量交给 git 解析。
+            # 不用 mapfile < <(...)：进程替换在子 shell 里跑，rev-list 中途失败也不会
+            # 传到 mapfile，拿到的可能是截断的链，二分就会给出一个偏新的定位点。
+            CHAIN_TXT=$(git rev-list --first-parent FETCH_HEAD) || {
+              echo "::error::取 $BRANCH 的提交链失败，fetch 大概没成"
+              exit 1
+            }
+            CHAIN=()
+            mapfile -t CHAIN <<< "$CHAIN_TXT"
+            if [ ${#CHAIN[@]} -eq 0 ] || [ -z "${CHAIN[0]}" ]; then
+              echo "::error::没取到 $BRANCH 的提交链，fetch 大概失败了"
+              exit 1
+            fi
+            LO=0; HI=$(( ${#CHAIN[@]} - 1 )); P=""
+            while [ "$LO" -le "$HI" ]; do
+              MID=$(( (LO + HI) / 2 ))
+              if git merge-base --is-ancestor "$SHA" "${CHAIN[$MID]}"; then
+                P="${CHAIN[$MID]}"; LO=$(( MID + 1 ))
+              else
+                HI=$(( MID - 1 ))
+              fi
+            done
+            if [ -n "$P" ]; then
+              M="$P"
+              echo "定位点 $(git log -1 --format='%h %s' "$M")"
+            else
+              echo "::error::$BRANCH 上定位不到 $TAG 对应的分支状态"
+              echo "拒绝退回编纯上游：定位不出来还硬编，编的是哪份代码都说不清。"
+              exit 1
+            fi
+          fi
+
+          # 下游每一步都拿这个 sha 去 checkout。必须是完整 commit sha：
+          # 空值或短 sha 会让 checkout 悄悄回退到事件 ref，编的是另一棵树还看不出来。
+          if ! [[ "$M" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::定位结果不是完整的 commit sha：[$M]"
+            exit 1
+          fi
+          echo "从 $M 开始编（$(git log -1 --format=%s "$M")）"
+          echo "sha=$M" >> "$GITHUB_OUTPUT"
+
+      - name: Build matrix
+        id: m
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+
+          # env 是要 export 的东西（编译器、部署目标）
+          # extra 是给 make 的平台参数。SUBTARGET 不在这写，Build 那步统一加
+          # apt 是这个平台额外要装的包，公共的见下面
+          cat > targets.json <<'JSON'
+          [
+          {"name":"linux-x86_64","runner":"ubuntu-latest","platform":"linux","apt":"gcc-12 g++-12","env":"CXXFLAGS=-Wno-deprecated-declarations","extra":"OVERRIDE_CC=/usr/bin/gcc-12 OVERRIDE_CXX=/usr/bin/g++-12","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"linux-aarch64","runner":"ubuntu-24.04-arm","platform":"linux","apt":"lld","env":"","extra":"LDOPTS=-fuse-ld=lld","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"windows-x86_64","runner":"ubuntu-latest","platform":"win","apt":"mingw-w64 gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix","env":"CC=x86_64-w64-mingw32-gcc-posix CXX=x86_64-w64-mingw32-g++-posix AR=x86_64-w64-mingw32-ar","extra":"MINGW64=1","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"android-arm64","runner":"ubuntu-latest","platform":"android-arm64","apt":"openjdk-25-jdk wget unzip cmake ninja-build","env":"","extra":"","ndk":true,"ndkabi":"arm64","xcode":false,"experimental":false},
+          {"name":"macos-arm64","runner":"macos-15","platform":"osx","apt":"","env":"CROSS_COMPILE=1 MACOSX_DEPLOYMENT_TARGET=10.14","extra":"","ndk":false,"ndkabi":"","xcode":false,"experimental":false,"applearm":true},
+          {"name":"linux-x86","runner":"ubuntu-latest","platform":"linux32","apt":"gcc-12 g++-12 gcc-12-multilib g++-12-multilib","env":"CXXFLAGS=-Wno-deprecated-declarations","extra":"OVERRIDE_CC=/usr/bin/gcc-12 OVERRIDE_CXX=/usr/bin/g++-12 LIBRETRO_CPU=x86","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"windows-x86","runner":"ubuntu-latest","platform":"win","apt":"mingw-w64 gcc-mingw-w64-i686-posix g++-mingw-w64-i686-posix","env":"CC=i686-w64-mingw32-gcc-posix CXX=i686-w64-mingw32-g++-posix AR=i686-w64-mingw32-ar","extra":"MINGW32=1 PTR64=0 LIBRETRO_CPU=x86","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"android-armv7","runner":"ubuntu-latest","platform":"android-arm","apt":"openjdk-25-jdk wget unzip cmake ninja-build","env":"","extra":"","ndk":true,"ndkabi":"armv7","xcode":false,"experimental":false},
+          {"name":"android-x86","runner":"ubuntu-latest","platform":"android-x86","apt":"openjdk-25-jdk wget unzip cmake ninja-build","env":"","extra":"","ndk":true,"ndkabi":"x86","xcode":false,"experimental":false},
+          {"name":"android-x86_64","runner":"ubuntu-latest","platform":"android-x86_64","apt":"openjdk-25-jdk wget unzip cmake ninja-build","env":"","extra":"","ndk":true,"ndkabi":"x86_64","xcode":false,"experimental":false},
+          {"name":"macos-x86_64","runner":"macos-15-intel","platform":"osx","apt":"","env":"MACOSX_DEPLOYMENT_TARGET=10.14","extra":"","ndk":false,"ndkabi":"","xcode":false,"experimental":false},
+          {"name":"ios-arm64","runner":"macos-15","platform":"ios-arm64","apt":"","env":"","extra":"","ndk":false,"ndkabi":"","xcode":true,"experimental":false},
+          {"name":"tvos-arm64","runner":"macos-15","platform":"tvos-arm64","apt":"","env":"","extra":"","ndk":false,"ndkabi":"","xcode":true,"experimental":false},
+          {"name":"linux-armhf","runner":"ubuntu-latest","platform":"linux","apt":"gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf","env":"","extra":"OVERRIDE_CC=arm-linux-gnueabihf-gcc OVERRIDE_CXX=arm-linux-gnueabihf-g++ OVERRIDE_AR=arm-linux-gnueabihf-ar CROSS_BUILD=1 LIBRETRO_CPU=arm PTR64=0","ndk":false,"ndkabi":"","xcode":false,"experimental":true},
+          {"name":"linux-armv7-neon","runner":"ubuntu-latest","platform":"linux","apt":"gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf","env":"","extra":"OVERRIDE_CC=arm-linux-gnueabihf-gcc OVERRIDE_CXX=arm-linux-gnueabihf-g++ OVERRIDE_AR=arm-linux-gnueabihf-ar CROSS_BUILD=1 LIBRETRO_CPU=arm PTR64=0","ndk":false,"ndkabi":"","xcode":false,"experimental":true},
+          {"name":"ios","runner":"macos-15","platform":"ios","apt":"","env":"","extra":"","ndk":false,"ndkabi":"","xcode":true,"experimental":true},
+          {"name":"ios9","runner":"macos-15","platform":"ios9","apt":"","env":"","extra":"","ndk":false,"ndkabi":"","xcode":true,"experimental":true},
+          {"name":"switch","runner":"ubuntu-latest","platform":"switch","apt":"","env":"","extra":"","ndk":false,"ndkabi":"","xcode":false,"experimental":true,"separate":true}
+          ]
+          JSON
+
+          SEL=$(printf '%s' "$TARGETS" | tr -d ' \t' | tr ';' ',' | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd, -)
+          SELN=$(printf '%s' "$SEL" | awk -F',' '{print NF}')
+          MATCH=$(jq -c --arg sel "$SEL" '[.[] | select(((.name) as $n | ($sel|split(",")) | index($n)) != null)]' targets.json)
+          MATCHN=$(printf '%s' "$MATCH" | jq 'length')
+          if [ "$MATCHN" -ne "$SELN" ]; then
+            echo "::error::包含未知目标。输入=$SEL"
+            echo "可选：$(jq -r '.[].name' targets.json | paste -sd, -)"
+            exit 1
+          fi
+          case ",$SEL," in
+            *,switch,*) echo "switch=true" >> "$GITHUB_OUTPUT" ;;
+            *)          echo "switch=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          MATRIX=$(printf '%s' "$MATCH" | jq -c '[.[] | select(.separate != true)]')
+          echo "build_count=$(printf '%s' "$MATRIX" | jq 'length')" >> "$GITHUB_OUTPUT"
+          echo "matrix={\"include\":$MATRIX}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.build_count != '0' }}
+    env:
+      SUBTARGET: ${{ inputs.subtarget }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 360
+    steps:
+      # 编的是 prepare 算出来的那个提交，不是 tag 本身。tag 只是个定位锚点，
+      # 真正的代码在你的分支上。depth 1 只拉这一个快照，历史不用要。
+      - name: Checkout ${{ inputs.branch }} @ ${{ inputs.tag || 'latest' }}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 1
+          submodules: false
+
+      - name: Show selected subtarget
+        run: echo "subtarget=$SUBTARGET tag=${{ inputs.tag || 'latest' }} targets=${{ matrix.name }}"
+
+      - name: EXPERIMENTAL notice
+        if: ${{ matrix.experimental }}
+        run: echo "::warning::${{ matrix.name }} 无官方配方、未经实测；可能产出错误架构/平台产物，选了不保证出产物"
+
+      - name: Install dependencies (ubuntu)
+        if: ${{ startsWith(matrix.runner, 'ubuntu') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 pkg-config \
+            libgl1-mesa-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxxf86vm-dev mesa-common-dev \
+            ${{ matrix.apt }}
+
+      - name: Provide SDL2/SDL.h for Windows OSD (shim)
+        if: ${{ matrix.platform == 'win' }}
+        run: |
+          # win 交叉编译 2026-11-14 那次挂过，报 input_common.cpp:35 找不到 SDL2/SDL.h。
+          # 源头是 retroprefix.h:8/20，看见 _WIN32 就定义 SDLMAME_WIN32，make 参数关不掉，
+          # input_common.cpp:31-37 跟着 include 了。
+          # 可这头里的东西一次都没用上。键盘表在 input_common.cpp:50，裹在
+          # #if defined(OSD_WINDOWS)||defined(OSD_SDL) 里，OSD=retro 两个宏都没有，
+          # KEY_TRANS_SDL 压根不展开；input_common.cpp:258-290 那段 SDLMAME_WIN32 只碰
+          # m_table 字段，没引用任何 SDL 符号；retro_modules.lua:71-76 也只编 input_common、
+          # input_none、input_retro，input_dinput.cpp 不编。全项目没有第二个 SDL2 依赖点。
+          # 官方 buildbot 用私有 MXE 镜像，mingw 依赖自带；GitHub 的 ci-libretro-mingw.yml
+          # 只装编译器不给 SDL2，一直在失败。
+          # 那就补个空头糊过去，文件在就算过。上游源码不动，编译参数和 flags 一个不改。
+          mkdir -p "$GITHUB_WORKSPACE/.ci-sdl2/SDL2"
+          printf '/* libretro OSD=retro: included but never referenced. */\n' \
+            > "$GITHUB_WORKSPACE/.ci-sdl2/SDL2/SDL.h"
+
+      # NDK 不用装。runner 的 Ubuntu2404-Readme.md 里写着预置了
+      # /usr/local/lib/android/sdk/ndk/27.3.13750724，两个变量都指向它。
+      # 以前那个 nttld/setup-ndk r29 白等 40 秒，其实没生效，日志里 TOOLCHAIN、
+      # genie --CC、sysroot、$(info ANDROID_NDK_HOME...) 全是 r27，删了。
+      - name: Select Xcode
+        if: ${{ matrix.xcode }}
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+
+          # 让 <SDL2/SDL.h> 指到上一步那个空 shim。
+          # 用 CPATH 是因为它等于 -I，对 <...> 也管用，而且不是 make 变量，
+          # 不会像 CC=... 那样顺着 MAKEFLAGS 毒到 genie 的子 make，也不进链接命令。
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            if [ -n "${CPATH:-}" ]; then
+              export CPATH="$GITHUB_WORKSPACE/.ci-sdl2:$CPATH"
+            else
+              export CPATH="$GITHUB_WORKSPACE/.ci-sdl2"
+            fi
+          fi
+
+          # mingw 走官方那套，编译器用环境变量。写成 make 参数会毒到 genie
+          if [ -n "${{ matrix.env }}" ]; then
+            export ${{ matrix.env }}
+          fi
+
+          # SUBTARGET 在这一步统一加，平台表里不写死
+          EXTRA="${{ matrix.extra }} SUBTARGET=$SUBTARGET"
+
+          # macOS arm64 这两个变量得外面给。Makefile.libretro:197-208 的 CROSS_COMPILE=1
+          # 分支光引用 LIBRETRO_APPLE_PLATFORM / LIBRETRO_APPLE_ISYSROOT，自己不定。
+          # 不给就掉到 else，那儿硬编码 x86_64-apple-macos10.15，最后产出来还是 x86_64。
+          if [ "${{ matrix.applearm || false }}" = "true" ]; then
+            export LIBRETRO_APPLE_PLATFORM="arm64-apple-macos11.0"
+            export LIBRETRO_APPLE_ISYSROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          fi
+
+          # Android 编译器路径照官方 ci-libretro-android.yml，那个实测能过。
+          # 它有三个死配置，删了：
+          #   setup-ndk r29 是白搭，runner 预置的 ANDROID_NDK_HOME 就是 r27，改不动它。
+          #   tag 里那句 “#buildbot fix” 也只是把 ANDROID_NDK_ROOT 赋给 ANDROID_NDK_HOME。
+          #   WITH_ANDROID=30 在 makefile 里没接线，genie 的选项叫 --with-android，
+          #   toolchain.lua:73 默认 androidApiLevel=24，编译行只有 --target=...android24。
+          #   ANDROID_NDK_LLVM 和 ANDROID_NDK_ARM64 全仓搜不到。
+          # API=30 留着，它只管 wrapper 名字 aarch64-linux-android30-clang，真正的
+          # minSdk 是 genie 定死的 24。动它等于动已经验过的编译器路径。
+          if [ "${{ matrix.ndk }}" = "true" ]; then
+            # runner 有这变量，下面两行防镜像换代，一秒就挂，不用白等编译
+            if [ -z "${ANDROID_NDK_HOME:-}" ] && [ -n "${ANDROID_NDK_ROOT:-}" ]; then
+              export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+            fi
+            : "${ANDROID_NDK_HOME:?runner 未预置 ANDROID_NDK_HOME / ANDROID_NDK_ROOT}"
+            test -d "$ANDROID_NDK_HOME" || { echo "::error::NDK 目录不存在: $ANDROID_NDK_HOME"; exit 1; }
+            echo "Using NDK: $ANDROID_NDK_HOME"
+            export TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+            export API=30
+            case "${{ matrix.ndkabi }}" in
+              arm64)  CC_BIN="$TOOLCHAIN/bin/aarch64-linux-android${API}-clang" ;;
+              armv7)  CC_BIN="$TOOLCHAIN/bin/armv7a-linux-androideabi${API}-clang" ;;
+              x86)    CC_BIN="$TOOLCHAIN/bin/i686-linux-android${API}-clang" ;;
+              x86_64) CC_BIN="$TOOLCHAIN/bin/x86_64-linux-android${API}-clang" ;;
+            esac
+            EXTRA="$EXTRA OVERRIDE_CC=$CC_BIN OVERRIDE_CXX=${CC_BIN}++ OVERRIDE_AR=$TOOLCHAIN/bin/llvm-ar CROSS_BUILD=1"
+          fi
+
+          echo "make -f Makefile.libretro platform=${{ matrix.platform }} $EXTRA -j$JOBS"
+          make -f Makefile.libretro platform=${{ matrix.platform }} $EXTRA -j$JOBS
+
+      - name: Upload core
+        uses: actions/upload-artifact@v4
+        with:
+          name: mame${{ inputs.subtarget }}-${{ inputs.tag || 'latest' }}-${{ matrix.name }}
+          # 只要最终那个共享库。build/libretro/bin/ 里全是中间 .a，别带上
+          # projname 是 target..subtarget，所以名字是 mamearcade_* 或 mametiny_*
+          path: |
+            mame${{ inputs.subtarget }}_libretro.so
+            mame${{ inputs.subtarget }}_libretro.dll
+            mame${{ inputs.subtarget }}_libretro.dylib
+            mame${{ inputs.subtarget }}_libretro_android.so
+            mame${{ inputs.subtarget }}_libretro_ios.dylib
+            mame${{ inputs.subtarget }}_libretro_tvos.dylib
+          if-no-files-found: error
+
+  build-switch:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.switch == 'true' }}
+    env:
+      SUBTARGET: ${{ inputs.subtarget }}
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64
+    continue-on-error: true
+    timeout-minutes: 360
+    steps:
+      - name: EXPERIMENTAL notice
+        run: echo "::warning::switch 无官方配方、未经实测，选了不保证出产物"
+      - name: Checkout ${{ inputs.branch }} @ ${{ inputs.tag || 'latest' }}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 1
+          submodules: false
+      - name: Build (EXPERIMENTAL)
+        shell: bash
+        run: make -f Makefile.libretro platform=switch SUBTARGET=$SUBTARGET -j$(nproc)
+      - name: Upload core (EXPERIMENTAL)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mame${{ inputs.subtarget }}-${{ inputs.tag || 'latest' }}-switch
+          path: |
+            mame${{ inputs.subtarget }}_libretro.so
+            mame${{ inputs.subtarget }}_libretro.dll
+            mame${{ inputs.subtarget }}_libretro.dylib
+            mame${{ inputs.subtarget }}_libretro_android.so
+            mame${{ inputs.subtarget }}_libretro_ios.dylib
+            mame${{ inputs.subtarget }}_libretro_tvos.dylib
+          if-no-files-found: warn
