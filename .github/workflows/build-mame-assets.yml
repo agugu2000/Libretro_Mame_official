@@ -1,0 +1,745 @@
+name: Build MAME assets (language + plugins)
+
+# 资源 CI。不编核心，只出 language/ 和 plugins/。定位方式和编核心那个一样：
+# 按「分支 + tag」找到 tag 那一刻分支的状态，从那棵树里取文件。tag 早到那会儿分支
+# 上还没有自有提交时，定位点就是 tag 自己，取出来等于上游原版，这也是对的。
+# tag 留空就取分支最新，产物名写 latest。
+# 两边必须编同一棵树，不然核心和语言包对不上号。上游没这个文件名，merge 不会撞。
+# 只挂 workflow_dispatch。
+#
+# 干这个是因为：MAME 运行时读 language/<Lang>/strings.mo（language.cpp:34），不是 .po。
+# .mo 要编，makefile:1627 那条 `%.mo: %.po` 调 scripts/build/msgfmt.py 生成。
+# 编核心的 workflow 其实在 runner 上编出过 52 个 .mo，可 artifact 只收 .so/.dll，
+# runner 一销毁就没了。所以这边按同一个 tag 重编一遍。
+# plugins/ 是纯 lua/json，不编也不进二进制，pluginopts.cpp:41 扫下目录就读，
+# 从同一个 tag 拷过来就行。
+# 两样都只跟那棵树有关，跟平台无关，所以单独一份，不用跟着平台矩阵重复跑。
+#
+# tag 和分支都得跟 Build MAME libretro core (arcade) 填的一样，不然核心和资源
+# 不是同一棵树上的东西。
+#
+# 三份输入各有各的来源，别混：
+#   pot（源码真实全集） ← M 那棵树。必须和编核心的源码同版本，不然 key 对不上。
+#   plugins/            ← M 那棵树，跟核心同版本。
+#   记忆库 .po（译文）  ← 你填的那个分支的顶层，不是 M，也不是触发本次 workflow
+#                         的那个 ref。译文是积累型的，tag 里的 po 停在 2023-02-18，
+#                         越新越全。拿顶层译文按 msgctxt+msgid 灌进 M 树，就是「新
+#                         译文打在旧版本上」：多出来的条目运行时按 key 查不到、无害；
+#                         漏一条，界面上就是英文。
+#                         不能用 github.sha：那是触发 ref 的 HEAD。从 master 触发去
+#                         跑 branch=myfix，拿的就是 master 的译文，跟树不同源。
+#
+# 每份输入都只认「tag 那一刻 + 该 tag 之前的分支改动」，之后的提交一律不带：
+# M 由二分定位保证，译文靠 key 匹配天然过滤器——tag 之后源码里新加的字符串在
+# M 树里不存在，pot 里没有，就不会被塞进 po。
+#
+# 别自己再 zip 一层。upload-artifact 本来就打包，再 zip 一次，下回来是 zip 套 zip。
+# 直接传 language/ 和 plugins/ 两个目录，解压出来就是这俩文件夹。
+# 用户下载后改名 mame-assets-<tag>.zip，丢进 mame-deploy-tool/resources/。工具按
+# mame-assets-*.zip 通配，不看版本号，有多个就取排第一的，然后在浏览器里铺开。
+# compression-level 0 是 Store 不压缩，那个纯 JS 工具没带解压库，压了读不了。
+# 两个 path 的公共祖先是 mame/，所以 zip 里直接是 language/… 和 plugins/…，没顶层目录。
+#
+# 下面是 2026-11 加的中文补丁，别删。
+# 原来只把 tag 自带的 po 编成 mo。问题在于 tag 里 52 个语言的 po 全停在
+# POT-Creation-Date 2023-02-18，之后源码加的界面字符串（audio effects、audio mixer、
+# offscreenreload 这些）从没进过 po，mo 里当然也没有，界面上就露英文。
+# 拿源码真实全集比，只覆盖 80.41%（1227/1526），不是 po 自称的那 4 条。
+#
+# 所以现在两步走。
+# 第一步 xgettext 现提一个 pot，当源码真实全集，只用来算缺口、给新条目兜底。
+# -k 参数照 makefile:1762 的 translation 抄。目录只扫 src/frontend、src/emu、src/osd、
+# plugins。makefile 里还扫 src/devices、src/mame、src/lib、src/tools，这四个目录实测
+# 一条都不出（驱动名设备名不走翻译），扫了白跑。哪天它们开始出字符串，记得加回来。
+#
+# 第二步拿本仓库简体、繁体两份 strings.po 当记忆库，按 msgctxt + msgid 灌进那棵树上
+# 再交给下面原来的编译。匹配键跟运行时一个算法（src/lib/util/language.cpp:179，
+# 拼 ctx + '\004' + msgid），所以换哪个 tag 都对得上，不看行号不看条序不看版本。
+# 取值先找记忆库里精确的 key，不中再找同 msgid 但没 ctx 的，最后才用 tag 自带的原值。
+# 中间那层是给「源码只加了 ctx、字符串没变」兜底的，实测能捞回 28 条。
+# 两个语言各跑一遍，逻辑就一份，只换 TM/TARGET 目录。繁体是拿简体整份转的，
+# 怎么转的写在 language/Chinese_Traditional 文件头。
+#
+# 缺口不算失败，写进 job summary，另外存一份 mame-zh-gap-<tag> 附件，每语言一份。
+# 翻译是长期活，总不能上游多几个菜单就卡着不出包。
+# 另外 50 个语言不管，还是 tag 里那套 po 原样编。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '上游 tag（只接受原始 tag，如 lrmame0289）。用来在分支上定位要取的树。留空就取该分支最新，不用填'
+        required: false
+        default: ''
+        type: string
+      branch:
+        description: '分支名。CI 在这个分支的历史里找该 tag 的合并点'
+        required: true
+        default: 'master'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mame-assets-${{ github.ref }}-${{ inputs.branch }}-${{ inputs.tag || 'latest' }}
+  cancel-in-progress: true
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      # 这段和 build-mame-core.yml 里那个 Locate build point 是同一套逻辑，改要一起改。
+      - name: Locate build point
+        id: loc
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          BRANCH: ${{ inputs.branch }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          UP=https://github.com/libretro/mame.git
+          SELF="https://x-access-token:$TOKEN@github.com/$REPO"
+
+          # tag 留空就是取分支最新，下面这几段跟 tag 有关的全跳过
+          if [ -n "$TAG" ]; then
+            if ! printf '%s' "$TAG" | grep -qE '^[A-Za-z0-9._-]+$'; then
+              echo "::error::只接受原始 tag（字母/数字/./_/-），收到：$TAG"
+              exit 1
+            fi
+
+            # ls-remote --tags --refs 给的是 tag 对象的 SHA，annotated tag 还得再解一层
+            # 才是 commit
+            SHA=$(git ls-remote "$UP" "refs/tags/$TAG^{}" | cut -f1) || {
+              echo "::error::访问 $UP 失败，先看网络"
+              exit 1
+            }
+            [ -n "$SHA" ] || SHA=$(git ls-remote "$UP" "refs/tags/$TAG" | cut -f1)
+            if [ -z "$SHA" ]; then
+              echo "::error::libretro/mame 没有 tag：$TAG"
+              echo "近 20 个 lrmame tag："
+              git ls-remote --tags --refs "$UP" | awk -F/ '{print $NF}' \
+                | grep -E '^lrmame[0-9]+$' | sort -V | tail -20 || true
+              exit 1
+            fi
+            echo "tag $TAG -> $SHA"
+          fi
+
+          HEADS=$(git ls-remote --heads "$SELF" "refs/heads/$BRANCH") || {
+            echo "::error::访问本仓库失败，token 权限或者网络的问题"
+            exit 1
+          }
+          if [ -z "$HEADS" ]; then
+            echo "::error::仓库里没有分支：$BRANCH"
+            exit 1
+          fi
+
+          if [ -n "$TAG" ]; then
+            FSHA=$(git ls-remote "$SELF" "refs/tags/$TAG^{}" | cut -f1)
+            [ -n "$FSHA" ] || FSHA=$(git ls-remote "$SELF" "refs/tags/$TAG" | cut -f1)
+            if [ -n "$FSHA" ] && [ "$FSHA" != "$SHA" ]; then
+              echo "::error::本仓库的 $TAG 指向 $FSHA，上游是 $SHA，不是同一个提交"
+              exit 1
+            fi
+            if [ -z "$FSHA" ]; then
+              echo "::warning::本仓库没有 $TAG 这个 tag，不影响。要补就本地 git push origin $TAG"
+            fi
+          fi
+
+          LOC="$(pwd)/.loc"
+          git init -q "$LOC"
+          trap 'rm -rf "$LOC" || true' EXIT
+          cd "$LOC"
+          git remote add origin "$SELF"
+          git fetch -q --no-tags --filter=tree:0 origin "$BRANCH"
+
+          if [ -z "$TAG" ]; then
+            # 没填 tag，取这个分支当前的头，不找什么合并点
+            M=$(git rev-parse FETCH_HEAD)
+            echo "没填 tag，取 $BRANCH 最新：$(git log -1 --format='%h %s' "$M")"
+          else
+            if ! git merge-base --is-ancestor "$SHA" FETCH_HEAD 2>/dev/null; then
+              echo "::error::$TAG 那个提交不在 $BRANCH 的历史里"
+              echo "要么还没 merge 进来，要么同步上游时用了 rebase"
+              echo "用 merge：git fetch upstream --tags && git merge $TAG"
+              exit 1
+            fi
+
+            # 在分支的第一父链上，找最旧的「包含该 tag」的提交，它就是合入点：
+            # 含 tag 的全部内容 + 该 tag 之前你分支上的改动。链是单调的（越老越不
+            # 可能含 tag），二分成立，任意拓扑都对。
+            # 「tag 之后不带」指的是你自己分支上写的提交：它们都在合入点后面。
+            # 上游侧带进来多少，取决于你那次 merge 合的是哪条上游线（合 tag 就只到
+            # tag，合当时的 upstream/master 就会带上它那一整条）。
+            # 不能换 rev-list --ancestry-path --first-parent：tag 在第二父线上时那个
+            # 组合会算成空集。也不能看 merge 的第二父是不是 tag：同步上游时合的是
+            # 当时的 master，第二父就不是 tag，那种写法会一路掉到拿纯上游顶上。
+            # tail -1 那套也不能换 --reverse | head -1：head 读一行就走，rev-list 还在
+            # 往里写，SIGPIPE 会让整个 step 以 141 退出，什么错都看不到。
+            # FETCH_HEAD 是 git 的伪引用，不能写成 "$FETCH_HEAD"：shell 里没这个变量，
+            # set -u 下展开直接崩。下面全部按字面量交给 git 解析。
+            # 不用 mapfile < <(...)：进程替换在子 shell 里跑，rev-list 中途失败也不会
+            # 传到 mapfile，拿到的可能是截断的链，二分就会给出一个偏新的定位点。
+            CHAIN_TXT=$(git rev-list --first-parent FETCH_HEAD) || {
+              echo "::error::取 $BRANCH 的提交链失败，fetch 大概没成"
+              exit 1
+            }
+            CHAIN=()
+            mapfile -t CHAIN <<< "$CHAIN_TXT"
+            if [ ${#CHAIN[@]} -eq 0 ] || [ -z "${CHAIN[0]}" ]; then
+              echo "::error::没取到 $BRANCH 的提交链，fetch 大概失败了"
+              exit 1
+            fi
+            LO=0; HI=$(( ${#CHAIN[@]} - 1 )); P=""
+            while [ "$LO" -le "$HI" ]; do
+              MID=$(( (LO + HI) / 2 ))
+              if git merge-base --is-ancestor "$SHA" "${CHAIN[$MID]}"; then
+                P="${CHAIN[$MID]}"; LO=$(( MID + 1 ))
+              else
+                HI=$(( MID - 1 ))
+              fi
+            done
+            if [ -n "$P" ]; then
+              M="$P"
+              echo "定位点 $(git log -1 --format='%h %s' "$M")"
+            else
+              echo "::error::$BRANCH 上定位不到 $TAG 对应的分支状态"
+              echo "拒绝退回取纯上游：定位不出来还硬取，资源包跟你的核心对不上号。"
+              exit 1
+            fi
+          fi
+
+          # 下面两个 checkout 都拿这俩值当 ref。必须是完整 commit sha：
+          # 空值会让 checkout 悄悄回退到事件 ref，取的是另一棵树还看不出来。
+          if ! [[ "$M" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::定位结果不是完整的 commit sha：[$M]"
+            exit 1
+          fi
+          echo "从 $M 取文件（$(git log -1 --format=%s "$M")）"
+          echo "sha=$M" >> "$GITHUB_OUTPUT"
+          # 译文取这个分支的顶层，跟 M 是两条线：M 决定源码和插件，这个决定译文。
+          # 没填 tag 时两者本来就相等，填了 tag 才会分开。
+          HEAD_SHA=$(git rev-parse FETCH_HEAD)
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::译文字典的分支顶层解析失败：[$HEAD_SHA]"
+            exit 1
+          fi
+          echo "译文取 $BRANCH 顶层：$(git log -1 --format='%h %s' "$HEAD_SHA")"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ${{ inputs.branch }} @ ${{ inputs.tag || 'latest' }}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.loc.outputs.sha }}
+          fetch-depth: 1
+          submodules: false
+          path: mame
+
+      # 记忆库只要中文这两个目录，全仓库 checkout 太慢。
+      # ref 用分支顶层（loc.head），不是触发 ref 的 github.sha：跟 inputs.branch 同源，
+      # 分支自己最新的译文才是这次该用的。中文这俩目录不在就直接报错，别静默降级成
+      # 「没打补丁」。
+      # 以后加语言，这儿和下面 Patch 的 LANGS 得一起加。漏一个，那个语言就不打补丁
+      - name: Checkout translation memory (this repo)
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.loc.outputs.head }}
+          path: ours
+          sparse-checkout: |
+            language/Chinese_Simplified
+            language/Chinese_Traditional
+          fetch-depth: 1
+          persist-credentials: false
+
+      # ubuntu-latest 一般自带 gettext，缺了再装，别每次都白等一轮 apt
+      - name: Ensure gettext
+        run: |
+          set -euo pipefail
+          if ! command -v xgettext >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends gettext
+          fi
+          xgettext --version | head -1
+
+      - name: Extract source strings (pot)
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          # xgettext -j 要先有个合法 pot 才肯往里追加，先手写个只有 header 的
+          printf 'msgid ""\nmsgstr ""\n"Content-Type: text/plain; charset=UTF-8\\n"\n' > work/mame.pot
+          cd mame
+          find src/frontend src/emu src/osd \( -name '*.cpp' -o -name '*.ipp' \) -print0 \
+            | xargs -0 -r xgettext -j -o ../work/mame.pot --from-code=UTF-8 --language=C++ \
+                -k_:1,1t -k_:1c,2,2t -kN_ -kN_p:1c,2
+          find plugins -name '*.lua' -print0 \
+            | xargs -0 -r xgettext -j -o ../work/mame.pot --from-code=UTF-8 --language=Lua \
+                -k_:1 -k_p:1c,2 -kN_ -kN_p:1c,2
+          cd ..
+          N=$(grep -c '^msgid ' work/mame.pot || true)
+          NP=$(grep -c '^msgid_plural' work/mame.pot || true)
+          echo "pot: msgid=$N plural=$NP"
+          [ "$N" -ge 200 ] || { echo "::error::pot 条目数异常：$N"; exit 1; }
+          [ "$NP" -eq 0 ] || echo "::warning::pot 里有 $NP 条复数条目，合并时按单数处理，需要的话再改脚本"
+
+      # 按 msgctxt + msgid 把记忆库灌进 tag 的 po。两个语言各跑一遍，逻辑一份，
+      # 只有 TM/TARGET 不同。哪个语言 tag 里没有 po，就从 pot 起个空的，译文全靠记忆库。
+      # 写在 run 里是为了这条 CI 保持单文件，不在仓库里多塞一个脚本。
+      - name: Patch Chinese translations
+        env:
+          LANGS: Chinese_Simplified,Chinese_Traditional
+          POT: work/mame.pot
+          TM_ROOT: ours/language
+          TARGET_ROOT: mame/language
+          GAP_DIR: work
+          TAG_NAME: ${{ inputs.tag || 'latest' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import difflib
+          import os
+          import re
+          import sys
+
+          POT = os.environ['POT']
+          TM_ROOT = os.environ['TM_ROOT']
+          TARGET_ROOT = os.environ['TARGET_ROOT']
+          GAP_DIR = os.environ['GAP_DIR']
+          LANGS = [x.strip() for x in os.environ['LANGS'].split(',') if x.strip()]
+
+          ESCAPES = {'n': '\n', 't': '\t', 'r': '\r', '"': '"', '\\': '\\',
+                     'a': '\a', 'b': '\b', 'f': '\f', 'v': '\v', '?': '?'}
+
+
+          def unquote(s):
+              s = s.strip()
+              if not (len(s) >= 2 and s.startswith('"') and s.endswith('"')):
+                  return s
+              body = s[1:-1]
+              out = []
+              i = 0
+              while i < len(body):
+                  c = body[i]
+                  if c == '\\' and i + 1 < len(body):
+                      n = body[i + 1]
+                      if n in ESCAPES:
+                          out.append(ESCAPES[n])
+                          i += 2
+                          continue
+                      if n == 'x' and i + 3 < len(body):
+                          try:
+                              out.append(chr(int(body[i + 2:i + 4], 16)))
+                              i += 4
+                              continue
+                          except ValueError:
+                              pass
+                      out.append(n)
+                      i += 2
+                      continue
+                  out.append(c)
+                  i += 1
+              return ''.join(out)
+
+
+          def quote(s):
+              return (s.replace('\\', '\\\\').replace('"', '\\"')
+                       .replace('\n', '\\n').replace('\t', '\\t').replace('\r', '\\r'))
+
+
+          def field_lines(name, s):
+              if '\n' not in s and len(s) <= 200:
+                  return ['%s "%s"' % (name, quote(s))]
+              parts = s.split('\n')
+              out = ['%s ""' % name]
+              for i, p in enumerate(parts):
+                  seg = p if i == len(parts) - 1 else (p + '\n')
+                  if seg == '' and i == len(parts) - 1:
+                      continue
+                  out.append('"%s"' % quote(seg))
+              return out
+
+
+          def split_blocks(text):
+              return [b for b in re.split(r'\n[ \t]*\n', text) if b.strip()]
+
+
+          def block_key(block):
+              if block.strip().startswith('#~'):
+                  return None
+              ctx = None
+              msgid = None
+              cur = None
+              for line in block.splitlines():
+                  s = line.strip()
+                  if s.startswith('#'):
+                      continue
+                  m = re.match(r'^(msgctxt|msgid)\s+(".*")$', s)
+                  if m:
+                      if m.group(1) == 'msgctxt':
+                          ctx = unquote(m.group(2))
+                          cur = None
+                      else:
+                          msgid = unquote(m.group(2))
+                          cur = 'msgid'
+                      continue
+                  if s.startswith('"') and cur == 'msgid':
+                      msgid += unquote(s)
+                      continue
+                  if s.startswith('msgstr'):
+                      cur = None
+              if msgid is None:
+                  return None
+              return (ctx, msgid)
+
+
+          def block_msgstr(block):
+              """返回 (msgstr 之前的行, 译文, msgstr 之后的行)。
+              第三段是防呆：msgstr 后面要是紧贴着 #~ 之类没空行分隔的行，
+              重写时得原样带回去，不能吞掉。"""
+              lines = block.splitlines()
+              start = None
+              for i, ln in enumerate(lines):
+                  if ln.strip().startswith('msgstr'):
+                      start = i
+                      break
+              if start is None:
+                  return None, None, None
+              parts = []
+              st = lines[start].strip()
+              m = re.match(r'^msgstr\s+(".*")$', st)
+              if m:
+                  parts.append(unquote(m.group(1)))
+              elif st != 'msgstr ""':
+                  return None, None, None
+              end = start + 1
+              for j in range(start + 1, len(lines)):
+                  s = lines[j].strip()
+                  if s.startswith('"'):
+                      parts.append(unquote(s))
+                      end = j + 1
+                  else:
+                      break
+              return lines[:start], ''.join(parts), lines[end:]
+
+
+          def load(path):
+              with open(path, encoding='utf-8') as f:
+                  text = f.read()
+              header = None
+              entries = []
+              refs = {}
+              for b in split_blocks(text):
+                  if b.strip().startswith('#~'):
+                      continue
+                  k = block_key(b)
+                  if k is None:
+                      continue
+                  if k == (None, ''):
+                      header = b
+                      continue
+                  _, s, _ = block_msgstr(b)
+                  entries.append((k, s or ''))
+                  r = [ln[2:].strip() for ln in b.splitlines() if ln.startswith('#:')]
+                  if r:
+                      refs.setdefault(k, r[0])
+              return header, entries, refs
+
+
+          def load_aliases(path):
+              """字典里用 "#. formerly: <旧原文>" 记下上游改过的措辞。
+              上游把 "Cheat" 写成 "Cheat Options" 之后，新 tag 拿新原文来查，
+              光靠 msgid 精确匹配接不住，这层别名负责兜。
+              只能人工声明：相似度匹配实测会把 [no saved states found]
+              对到 [no cheats found]、Plugin Options 对到 Cheat Options 上。"""
+              amap = {}
+              if not os.path.exists(path):
+                  return amap
+              with open(path, encoding='utf-8') as f:
+                  blocks = split_blocks(f.read())
+              for b in blocks:
+                  if b.strip().startswith('#~'):
+                      continue
+                  k = block_key(b)
+                  if k is None or k == (None, ''):
+                      continue
+                  _, s, _ = block_msgstr(b)
+                  if not (s or '').strip():
+                      continue
+                  for ln in b.splitlines():
+                      m = re.match(r'^#\.\s*formerly:\s*(.+)$', ln.strip())
+                      if m:
+                          old = m.group(1).strip()
+                          if old.startswith('"'):
+                              old = unquote(old)
+                          amap[(k[0], old)] = s
+              return amap
+
+
+          def looks_renamed(a, b):
+              """缺口里有一部分是上游改了英文措辞（Cheat -> Cheat Options）而不是真新增。
+              这类只在报告里点名让人确认，不自动灌译文：纯相似度不可靠，
+              [no saved states found] 会被对到 [no cheats found] 上。
+              判据放宽到两条：要么词序列前者是后者前缀（上游补了个限定词），
+              要么整体相似度很高（Override -> Overwrite）。"""
+              la, lb = a.lower(), b.lower()
+              if la == lb:
+                  return False
+              # 只差数字的不是改名：Stop Reel 1 / Stop Reel 5 是同类输入的不同编号。
+              if re.sub(r'\d+', '#', la) == re.sub(r'\d+', '#', lb):
+                  return False
+              wa, wb = la.split(), lb.split()
+              if wa and wb and wa != wb and max(len(wa), len(wb)) <= 6:
+                  short = wa if len(wa) < len(wb) else wb
+                  # 短的那条得含实词，否则 "%1$s" 这类纯占位串会把长串全吸过来。
+                  if any(len(w) >= 3 and '%' not in w for w in short):
+                      if wa[:len(wb)] == wb or wb[:len(wa)] == wa:
+                          return True
+              return difflib.SequenceMatcher(None, la, lb).ratio() >= 0.85
+
+
+          if not os.path.exists(POT):
+              print('::error::找不到 pot：%s' % POT, file=sys.stderr)
+              sys.exit(1)
+
+          pot_header, pot_entries, pot_refs = load(POT)
+          pot_keys = []
+          for k, _ in pot_entries:
+              if k not in pot_keys:
+                  pot_keys.append(k)
+          total = len(pot_keys)
+
+          # 纯格式串（%u、%1$3.1f ms 这种）翻不翻界面上都一样，上游 po 里也收着，删不掉，
+          # xgettext 每次重提又带回来。单独报个数，别算进人工翻译量。
+          # 判定是剥掉占位符后剩不到两个字母。
+          fmt_re = re.compile(r'%(?:\d+\$)?[-+ 0#]*[\d.*]*(?:[hlLqjzt]+)?[diouxXeEfgGaAcspn%]')
+          fmt_keys = [k for k in pot_keys
+                      if len(re.sub(r'[^A-Za-z]', '', fmt_re.sub('', k[1]))) < 2]
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as f:
+                  f.write('### 中文语言包补丁（%s）\n\n' % os.environ.get('TAG_NAME', ''))
+                  f.write('源码字符串全集 %d 条，其中纯格式串（无需翻译）%d 条。\n\n'
+                          % (total, len(fmt_keys)))
+
+          for lang in LANGS:
+              TM = os.path.join(TM_ROOT, lang, 'strings.po')
+              TARGET = os.path.join(TARGET_ROOT, lang, 'strings.po')
+              GAP = os.path.join(GAP_DIR, '%s-gap.md' % lang)
+
+              if not os.path.exists(TM):
+                  print('::error::找不到%s的翻译记忆库：%s' % (lang, TM), file=sys.stderr)
+                  sys.exit(1)
+
+              tm_header, tm_entries, _ = load(TM)
+              tm = {k: s for k, s in tm_entries if s.strip()}
+              alias = load_aliases(TM)
+
+              target_exists = os.path.exists(TARGET)
+              if target_exists:
+                  _, target_entries, _ = load(TARGET)
+                  with open(TARGET, encoding='utf-8') as f:
+                      target_blocks = split_blocks(f.read())
+              else:
+                  # tag 里没这个语言的 po，从 pot 起个空的，译文全靠记忆库
+                  target_entries = []
+                  target_blocks = []
+              tmap = {k: s for k, s in target_entries}
+
+              def lookup(k):
+                  ctx, msgid = k
+                  if k in tm:
+                      return tm[k], 'tm'
+                  if k in alias:
+                      return alias[k], 'alias'
+                  if ctx is not None and (None, msgid) in tm:
+                      return tm[(None, msgid)], 'tm-plain'
+                  if tmap.get(k, '').strip():
+                      return tmap[k], 'target'
+                  return '', ''
+
+              out_blocks = list(target_blocks)
+              if not target_blocks:
+                  base = tm_header or pot_header
+                  if base:
+                      out_blocks.append(base)
+
+              final = {}
+              skipped = 0
+              for idx, b in enumerate(list(out_blocks)):
+                  if b.strip().startswith('#~'):
+                      continue
+                  k = block_key(b)
+                  if k is None or k == (None, ''):
+                      continue
+                  val, _ = lookup(k)
+                  final[k] = val
+                  if not val:
+                      continue
+                  head, _, tail = block_msgstr(b)
+                  if head is None:
+                      # 解析不了别硬改，留原文再喊一声，别静悄悄当成功
+                      print('::warning::[%s] msgstr 解析失败，跳过：%s'
+                            % (lang, k[1].split('\n')[0][:60]))
+                      skipped += 1
+                      continue
+                  out_blocks[idx] = '\n'.join(head + field_lines('msgstr', val) + tail)
+
+              added = 0
+              added_filled = 0
+              for k in pot_keys:
+                  if k in tmap:
+                      continue
+                  val, _ = lookup(k)
+                  final[k] = val
+                  lines = []
+                  if pot_refs.get(k):
+                      lines.append('#: %s' % pot_refs[k])
+                  if k[0]:
+                      lines.append('msgctxt "%s"' % quote(k[0]))
+                  lines += field_lines('msgid', k[1])
+                  lines += field_lines('msgstr', val)
+                  out_blocks.append('\n'.join(lines))
+                  added += 1
+                  if val.strip():
+                      added_filled += 1
+
+              text = '\n\n'.join(out_blocks)
+              if not text.endswith('\n'):
+                  text += '\n'
+              os.makedirs(os.path.dirname(TARGET) or '.', exist_ok=True)
+              with open(TARGET, 'w', encoding='utf-8', newline='\n') as f:
+                  f.write(text)
+
+              covered = sum(1 for k in pot_keys if final.get(k, '').strip())
+              gaps = [k for k in pot_keys if not final.get(k, '').strip()]
+              before = sum(1 for k in pot_keys if tmap.get(k, '').strip())
+              pct = (100.0 * covered / total) if total else 0.0
+              print('[%s] tag_po=%d tag_covered=%d patched=%d (%.2f%%) added=%d(+%d) gap=%d'
+                    % (lang, len(target_entries), before, covered, pct, added, added_filled, len(gaps)))
+              src = {'tm': 0, 'alias': 0, 'tm-plain': 0, 'target': 0, 'empty': 0}
+              for k in pot_keys:
+                  _, how = lookup(k)
+                  src[how or 'empty'] += 1
+              print('来源: 记忆库 %d / 改名别名 %d / 记忆库无ctx兜底 %d / tag自带 %d / 仍空 %d'
+                    % (src['tm'], src['alias'], src['tm-plain'], src['target'], src['empty']))
+
+              suspects = []
+              for k in gaps:
+                  best = None
+                  for kk in tm:
+                      if kk[0] != k[0] or kk[1] == k[1]:
+                          continue
+                      if not looks_renamed(k[1], kk[1]):
+                          continue
+                      r = difflib.SequenceMatcher(None, k[1].lower(), kk[1].lower()).ratio()
+                      if best is None or r > best[0]:
+                          best = (r, kk)
+                  if best:
+                      suspects.append((k, best[1], best[0]))
+              if suspects:
+                  print('::warning::[%s] %d 条缺口疑似上游改名，确认后在字典条目上加 "#. formerly: <旧原文>"'
+                        % (lang, len(suspects)))
+
+              with open(GAP, 'w', encoding='utf-8') as f:
+                  f.write('# %s 未翻译条目（%d 条）\n\n' % (lang, len(gaps)))
+                  f.write('基准：从该 tag 源码用 xgettext 提取的 %d 条字符串。\n\n' % total)
+                  for i, k in enumerate(gaps, 1):
+                      ctx = ('{%s} ' % k[0]) if k[0] else ''
+                      f.write('%d. %s%s  \n' % (i, ctx, k[1].replace('\n', '\\n')))
+                  if suspects:
+                      f.write('\n## 疑似上游改名（%d 条，需人工确认）\n\n' % len(suspects))
+                      f.write('确认是改名的话，在字典对应条目上加 `#. formerly: <旧原文>`，'
+                              '下次就会自动接住。\n\n')
+                      for k, old, r in suspects:
+                          ctx = ('{%s} ' % k[0]) if k[0] else ''
+                          f.write('- 新 `%s%s` ← 旧 `%s`（相似度 %.2f）\n'
+                                  % (ctx, k[1].replace('\n', '\\n'),
+                                     old[1].replace('\n', '\\n'), r))
+
+              # fuzzy 的条目 msgfmt.py 整条丢，灌了译文也进不了 mo
+              # 不擅自清标志位，fuzzy 本来就是“待人工确认”，只统计出来提个醒
+              fuzzy = sum(1 for b in out_blocks
+                          if not b.strip().startswith('#~')
+                          and re.search(r'^#,.*\bfuzzy\b', b, re.M))
+              if fuzzy:
+                  print('::warning::[%s] po 里有 %d 条 fuzzy 条目，编译出的 mo 不会包含它们'
+                        % (lang, fuzzy))
+
+              if summary:
+                  with open(summary, 'a', encoding='utf-8') as f:
+                      f.write('#### %s\n\n' % lang)
+                      f.write('| 项目 | 数值 |\n|---|---|\n')
+                      f.write('| tag 自带 po 已译 | %d |\n' % before)
+                      f.write('| 打补丁后已译 | %d（%.2f%%）|\n' % (covered, pct))
+                      f.write('| 新增条目 | %d（其中带译文 %d）|\n' % (added, added_filled))
+                      f.write('| 仍缺 | %d |\n' % len(gaps))
+                      if src['alias']:
+                          f.write('| 其中靠改名别名接住 | %d |\n' % src['alias'])
+                      if suspects:
+                          f.write('| 疑似上游改名待确认 | %d |\n' % len(suspects))
+                      if fuzzy:
+                          f.write('| fuzzy（不进 mo） | %d |\n' % fuzzy)
+                      if skipped:
+                          f.write('| msgstr 解析失败 | %d |\n' % skipped)
+                      f.write('\n')
+                      if gaps:
+                          f.write('<details><summary>缺口前 50 条</summary>\n\n')
+                          for k in gaps[:50]:
+                              ctx = ('{%s} ' % k[0]) if k[0] else ''
+                              f.write('- `%s%s`\n' % (ctx, k[1].replace('\n', '\\n')))
+                          f.write('\n</details>\n\n')
+          PY
+
+      # 缺口清单单独存。assets 包是给部署工具直接展开的，别往里塞
+      - name: Upload translation gap report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mame-zh-gap-${{ inputs.tag || 'latest' }}
+          path: work/*-gap.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Compile .po to .mo
+        run: |
+          set -euo pipefail
+          cd mame
+          test -f scripts/build/msgfmt.py || { echo "::error::缺 scripts/build/msgfmt.py"; exit 1; }
+          n=0
+          for po in language/*/strings.po; do
+            [ -f "$po" ] || continue
+            python3 scripts/build/msgfmt.py --output-file "${po%.po}.mo" "$po"
+            n=$((n+1))
+          done
+          [ "$n" -gt 0 ] || { echo "::error::没有 language/*/strings.po"; exit 1; }
+          test -d plugins || { echo "::error::缺 plugins/"; exit 1; }
+          # 中文那两个 mo 得在，不能是空的。空了就是前面合并把 po 写坏了
+          for L in Chinese_Simplified Chinese_Traditional; do
+            test -s "language/$L/strings.mo" || { echo "::error::$L mo 没生成"; exit 1; }
+          done
+          # .po 是源文本，运行时不读，从临时 checkout 里删掉，免得误部署
+          find language -name '*.po' -delete
+          MO=$(find language -name '*.mo' | wc -l)
+          PL=$(find plugins -type f | wc -l)
+          PO=$(find language -name '*.po' | wc -l)
+          echo "校验: .mo=$MO plugins=$PL 残留.po=$PO"
+          [ "$MO" -ge 40 ] || { echo "::error::.mo 数量异常"; exit 1; }
+          [ "$PL" -ge 50 ] || { echo "::error::插件数量异常"; exit 1; }
+          [ "$PO" -eq 0 ]  || { echo "::error::仍残留 .po"; exit 1; }
+
+      - name: Upload asset bundle (single zip, no nesting)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mame-assets-${{ inputs.tag || 'latest' }}
+          path: |
+            mame/language
+            mame/plugins
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
